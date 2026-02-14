@@ -1,5 +1,7 @@
 # InChambers CORS Proxy - Cloudflare Worker
 
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/inchambers/icai-cors-proxy-cloudflare)
+
 A lightweight, edge-deployed CORS proxy for OpenRouter with true streaming support.
 
 ## Features
