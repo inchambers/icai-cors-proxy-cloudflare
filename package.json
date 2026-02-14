@@ -1,0 +1,29 @@
+{
+  "name": "icai-cors-proxy",
+  "version": "1.0.0",
+  "description": "InChambers CORS Proxy for OpenRouter - Cloudflare Worker",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production",
+    "deploy:staging": "wrangler deploy --env staging",
+    "tail": "wrangler tail",
+    "secret:openrouter": "wrangler secret put OPENROUTER_API_KEY",
+    "secret:registration": "wrangler secret put REGISTRATION_TOKEN"
+  },
+  "keywords": [
+    "cloudflare-worker",
+    "cors-proxy",
+    "openrouter",
+    "inchambers"
+  ],
+  "author": "InChambers",
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.28.2"
+  }
+}

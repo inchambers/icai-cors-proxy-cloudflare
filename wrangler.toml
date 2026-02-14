@@ -1,0 +1,21 @@
+name = "icai-cors-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Default environment variables (non-secret)
+[vars]
+AUDIT_LOG = "true"
+
+# Secrets (set via wrangler secret put):
+# - OPENROUTER_API_KEY: Your OpenRouter API key (required)
+# - JWT_PUBLIC_KEY_FALLBACK: RS256 public key for cold-start resilience (optional)
+# - REGISTRATION_TOKEN: Token from InChambers dashboard for auto-registration (optional)
+
+# Production environment
+[env.production]
+name = "icai-cors-proxy"
+
+# Staging environment (optional)
+[env.staging]
+name = "icai-cors-proxy-staging"
