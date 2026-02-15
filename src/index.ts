@@ -26,6 +26,9 @@ let jwksCache: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
 const JWKS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 const JWKS_URL = 'https://inchambers.ai/.well-known/jwks.json';
 
+// Registration state tracking
+let registrationAttempted = false;
+
 // Allowed origins for CORS
 const ALLOWED_ORIGINS = [
   'https://app.inchambers.ai',
@@ -70,6 +73,7 @@ async function getJwks(env: Env): Promise<JsonWebKey[]> {
         alg: 'RS256',
         n: extractModulusFromPEM(env.JWT_PUBLIC_KEY_FALLBACK),
         e: 'AQAB',
+        kid: '67558b1f4805e985', // Must match backend JWT kid
       }];
     }
 
@@ -231,7 +235,8 @@ async function handleHealth(env: Env, request: Request): Promise<Response> {
   const origin = request.headers.get('Origin');
 
   // Auto-register on first health check if registration token exists
-  if (env.REGISTRATION_TOKEN) {
+  if (env.REGISTRATION_TOKEN && !registrationAttempted) {
+    registrationAttempted = true; // Mark as attempted
     try {
       const workerUrl = new URL(request.url).origin;
       await fetch(`${workerUrl}/api/register-callback`, {
@@ -241,11 +246,10 @@ async function handleHealth(env: Env, request: Request): Promise<Response> {
           registrationToken: env.REGISTRATION_TOKEN,
           corsProxyUrl: workerUrl,
         }),
-      }).catch(() => {
-        // Silent fail - registration will be retried on next health check
       });
     } catch {
-      // Ignore auto-registration errors
+      // Allow retry on error
+      registrationAttempted = false;
     }
   }
 
@@ -286,13 +290,13 @@ async function handleRegisterCallback(request: Request, env: Env): Promise<Respo
     }
 
     // Call back to InChambers API to complete registration
-    const callbackResponse = await fetch('https://app.inchambers.ai/api/org/ai-platform/register-callback', {
+    const callbackResponse = await fetch('https://app.inchambers.ai/api/org/ai-platform-callback', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Registration-Token': body.registrationToken,
       },
       body: JSON.stringify({
+        registration_token: body.registrationToken,
         cors_proxy_url: body.corsProxyUrl,
         platform_type: 'cloudflare_worker',
       }),
