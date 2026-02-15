@@ -17,7 +17,6 @@
 export interface Env {
   OPENROUTER_API_KEY: string;
   JWT_PUBLIC_KEY_FALLBACK?: string;
-  REGISTRATION_TOKEN?: string;
   AUDIT_LOG?: string;
 }
 
@@ -26,8 +25,6 @@ let jwksCache: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
 const JWKS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 const JWKS_URL = 'https://inchambers.ai/.well-known/jwks.json';
 
-// Registration state tracking
-let registrationAttempted = false;
 
 // Allowed origins for CORS
 const ALLOWED_ORIGINS = [
@@ -234,25 +231,6 @@ function handleOptions(request: Request): Response {
 async function handleHealth(env: Env, request: Request): Promise<Response> {
   const origin = request.headers.get('Origin');
 
-  // Auto-register on first health check if registration token exists
-  if (env.REGISTRATION_TOKEN && !registrationAttempted) {
-    registrationAttempted = true; // Mark as attempted
-    try {
-      const workerUrl = new URL(request.url).origin;
-      await fetch(`${workerUrl}/api/register-callback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          registrationToken: env.REGISTRATION_TOKEN,
-          corsProxyUrl: workerUrl,
-        }),
-      });
-    } catch {
-      // Allow retry on error
-      registrationAttempted = false;
-    }
-  }
-
   const response = new Response(JSON.stringify({
     status: 'ok',
     version: '1.0.0',
@@ -267,67 +245,6 @@ async function handleHealth(env: Env, request: Request): Promise<Response> {
     headers: { 'Content-Type': 'application/json' },
   });
   return setCorsHeaders(response, origin);
-}
-
-/**
- * Handle registration callback for auto-setup
- */
-async function handleRegisterCallback(request: Request, env: Env): Promise<Response> {
-  const origin = request.headers.get('Origin');
-
-  try {
-    const body = await request.json() as {
-      registrationToken: string;
-      corsProxyUrl: string;
-    };
-
-    // Validate registration token
-    if (!env.REGISTRATION_TOKEN || body.registrationToken !== env.REGISTRATION_TOKEN) {
-      return setCorsHeaders(new Response(JSON.stringify({ error: 'Invalid registration token' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      }), origin);
-    }
-
-    // Call back to InChambers API to complete registration
-    const callbackResponse = await fetch('https://app.inchambers.ai/api/org/ai-platform-callback', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        registration_token: body.registrationToken,
-        cors_proxy_url: body.corsProxyUrl,
-        platform_type: 'cloudflare_worker',
-      }),
-    });
-
-    if (!callbackResponse.ok) {
-      const errorText = await callbackResponse.text();
-      return setCorsHeaders(new Response(JSON.stringify({
-        error: 'Registration callback failed',
-        details: errorText,
-      }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }), origin);
-    }
-
-    return setCorsHeaders(new Response(JSON.stringify({
-      success: true,
-      message: 'Registration completed',
-    }), {
-      headers: { 'Content-Type': 'application/json' },
-    }), origin);
-  } catch (error: any) {
-    return setCorsHeaders(new Response(JSON.stringify({
-      error: 'Registration failed',
-      details: error.message,
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    }), origin);
-  }
 }
 
 /**
@@ -495,11 +412,6 @@ export default {
       return await handleHealth(env, request);
     }
 
-    // Registration callback
-    if ((path === '/api/register-callback' || path === '/register-callback') && request.method === 'POST') {
-      return handleRegisterCallback(request, env);
-    }
-
     // Chat completions (main proxy endpoint)
     if ((path === '/chat/completions' || path === '/api/chat/completions' || path === '/v1/chat/completions') && request.method === 'POST') {
       return handleChatCompletions(request, env);
@@ -510,7 +422,7 @@ export default {
     return setCorsHeaders(new Response(JSON.stringify({
       error: 'Not found',
       path,
-      availableEndpoints: ['/health', '/api/chat/completions', '/api/register-callback'],
+      availableEndpoints: ['/health', '/api/chat/completions'],
     }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' },

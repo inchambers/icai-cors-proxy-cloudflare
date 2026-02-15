@@ -10,7 +10,6 @@ AUDIT_LOG = "true"
 # Secrets (set via wrangler secret put):
 # - OPENROUTER_API_KEY: Your OpenRouter API key (required)
 # - JWT_PUBLIC_KEY_FALLBACK: RS256 public key for cold-start resilience (optional)
-# - REGISTRATION_TOKEN: Token from InChambers dashboard for auto-registration (optional)
 
 # Production environment
 [env.production]
