@@ -227,8 +227,28 @@ function handleOptions(request: Request): Response {
 /**
  * Handle health check
  */
-function handleHealth(env: Env, request: Request): Response {
+async function handleHealth(env: Env, request: Request): Promise<Response> {
   const origin = request.headers.get('Origin');
+
+  // Auto-register on first health check if registration token exists
+  if (env.REGISTRATION_TOKEN) {
+    try {
+      const workerUrl = new URL(request.url).origin;
+      await fetch(`${workerUrl}/api/register-callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          registrationToken: env.REGISTRATION_TOKEN,
+          corsProxyUrl: workerUrl,
+        }),
+      }).catch(() => {
+        // Silent fail - registration will be retried on next health check
+      });
+    } catch {
+      // Ignore auto-registration errors
+    }
+  }
+
   const response = new Response(JSON.stringify({
     status: 'ok',
     version: '1.0.0',
@@ -468,7 +488,7 @@ export default {
     // Route requests
     // Health check (try multiple paths for compatibility)
     if (path === '/health' || path === '/api/health') {
-      return handleHealth(env, request);
+      return await handleHealth(env, request);
     }
 
     // Registration callback
