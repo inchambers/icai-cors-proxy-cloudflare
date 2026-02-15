@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# This is a Cloudflare Worker, not a Cloudflare Pages project
+# Disable automatic Pages deployments
+exit 1
