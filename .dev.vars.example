@@ -1,0 +1,10 @@
+# InChambers CORS Proxy - Required Secrets
+#
+# These secrets will be prompted during "Deploy to Cloudflare" setup.
+# The descriptions are defined in package.json under cloudflare.bindings.
+
+# Your OpenRouter API key from https://openrouter.ai/keys
+OPENROUTER_API_KEY=
+
+# Registration token from InChambers Org Admin Dashboard → AI Platform → Generate Token
+REGISTRATION_TOKEN=
