@@ -21,6 +21,16 @@
   "author": "InChambers",
   "license": "UNLICENSED",
   "private": true,
+  "cloudflare": {
+    "bindings": {
+      "OPENROUTER_API_KEY": {
+        "description": "**Required**: Your OpenRouter API key from [openrouter.ai/keys](https://openrouter.ai/keys). This key enables access to 11 premium AI models (Claude, GPT, Gemini, Grok, DeepSeek, Mistral)."
+      },
+      "REGISTRATION_TOKEN": {
+        "description": "**Required**: Copy the registration token from your InChambers Organization Admin Dashboard → AI Platform → Generate Token. This enables automatic proxy URL registration."
+      }
+    }
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240208.0",
     "typescript": "^5.3.3",
