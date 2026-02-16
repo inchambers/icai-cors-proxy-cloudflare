@@ -22,6 +22,8 @@ A lightweight, edge-deployed CORS proxy for OpenRouter with true streaming suppo
 
 ### Installation
 
+#### Option 1: Automated Deployment (Recommended)
+
 ```bash
 # Install dependencies
 npm install
@@ -29,15 +31,35 @@ npm install
 # Login to Cloudflare
 wrangler login
 
-# Set your OpenRouter API key
-npm run secret:openrouter
-# (paste your key when prompted)
-
-# Optional: Set registration token from InChambers dashboard
-npm run secret:registration
-
-# Deploy to Cloudflare
+# Run automated deployment script
 npm run deploy
+```
+
+The script will:
+1. ✅ Fetch JWT public key from InChambers automatically
+2. ✅ Prompt for your OpenRouter API key
+3. ✅ Prompt for Organization ID (optional)
+4. ✅ Prompt for alert webhook URL (optional)
+5. ✅ Set all secrets automatically
+6. ✅ Deploy to Cloudflare Workers
+
+#### Option 2: Manual Deployment
+
+```bash
+# Install dependencies
+npm install
+
+# Login to Cloudflare
+wrangler login
+
+# Set secrets manually
+npm run secret:openrouter     # Required: OpenRouter API key
+npm run secret:org            # Optional: Organization ID
+npm run secret:webhook        # Optional: Alert webhook URL
+npm run secret:jwt-fallback   # Optional: JWT fallback key
+
+# Deploy
+npm run deploy:manual
 ```
 
 ### Get Your Worker URL
@@ -54,33 +76,38 @@ Copy this URL and paste it into your InChambers Organization Admin Dashboard.
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENROUTER_API_KEY` | Yes | Your OpenRouter API key |
-| `REGISTRATION_TOKEN` | No | Token for auto-registration (from IC dashboard) |
-| `JWT_PUBLIC_KEY_FALLBACK` | No | RS256 public key for cold-start resilience |
-| `AUDIT_LOG` | No | Set to "false" to disable audit logging |
+| Variable | Required | Description | Auto-Set by Script? |
+|----------|----------|-------------|---------------------|
+| `OPENROUTER_API_KEY` | **Yes** | Your OpenRouter API key | ✅ Yes (prompts) |
+| `ORGANIZATION_ID` | No | Organization UUID for access control | ✅ Yes (prompts) |
+| `ALERT_WEBHOOK_URL` | No | Webhook URL for security alerts | ✅ Yes (prompts) |
+| `JWT_PUBLIC_KEY_FALLBACK` | No | RS256 public key for JWT verification | ✅ Yes (auto-fetched) |
+| `AUDIT_LOG` | No | Set to "false" to disable audit logging | ❌ Manual (wrangler.toml) |
 
-### Setting Secrets
+### Setting Secrets Manually
+
+If you prefer manual control:
 
 ```bash
 # Required: OpenRouter API key
-wrangler secret put OPENROUTER_API_KEY
+npm run secret:openrouter
 
-# Optional: Registration token
-wrangler secret put REGISTRATION_TOKEN
+# Optional: Organization ID (prevents cross-org access)
+npm run secret:org
 
-# Optional: JWT fallback key
-wrangler secret put JWT_PUBLIC_KEY_FALLBACK
+# Optional: Alert webhook URL (Slack, Discord, etc.)
+npm run secret:webhook
+
+# Optional: JWT fallback key (for cold-start resilience)
+npm run secret:jwt-fallback
 ```
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check (also `/api/health`) |
-| `/api/chat/completions` | POST | OpenRouter proxy (also `/chat/completions`, `/v1/chat/completions`) |
-| `/api/register-callback` | POST | Auto-registration callback |
+| `/health` or `/api/health` | GET | Health check endpoint |
+| `/chat/completions`<br/>`/api/chat/completions`<br/>`/v1/chat/completions` | POST | OpenRouter proxy with JWT auth |
 
 ## Development
 

@@ -5,12 +5,15 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "deploy:production": "wrangler deploy --env production",
-    "deploy:staging": "wrangler deploy --env staging",
+    "deploy": "./scripts/deploy.sh production",
+    "deploy:staging": "./scripts/deploy.sh staging",
+    "deploy:manual": "wrangler deploy",
     "tail": "wrangler tail",
+    "tail:production": "wrangler tail --env production",
     "secret:openrouter": "wrangler secret put OPENROUTER_API_KEY",
-    "secret:registration": "wrangler secret put REGISTRATION_TOKEN"
+    "secret:org": "wrangler secret put ORGANIZATION_ID",
+    "secret:webhook": "wrangler secret put ALERT_WEBHOOK_URL",
+    "secret:jwt-fallback": "wrangler secret put JWT_PUBLIC_KEY_FALLBACK"
   },
   "keywords": [
     "cloudflare-worker",
@@ -26,8 +29,14 @@
       "OPENROUTER_API_KEY": {
         "description": "**Required**: Your OpenRouter API key from [openrouter.ai/keys](https://openrouter.ai/keys). This key enables access to 11 premium AI models (Claude, GPT, Gemini, Grok, DeepSeek, Mistral)."
       },
-      "REGISTRATION_TOKEN": {
-        "description": "**Required**: Copy the registration token from your InChambers Organization Admin Dashboard → AI Platform → Generate Token. This enables automatic proxy URL registration."
+      "ORGANIZATION_ID": {
+        "description": "**Optional**: Your organization UUID from InChambers Admin Dashboard. Prevents cross-org access attempts. Leave empty to allow multiple organizations."
+      },
+      "ALERT_WEBHOOK_URL": {
+        "description": "**Optional**: Webhook URL (Slack, Discord, etc.) for security alerts (abuse detection, unauthorized access attempts)."
+      },
+      "JWT_PUBLIC_KEY_FALLBACK": {
+        "description": "**Optional**: RS256 public key for JWT verification fallback. Auto-fetched during deployment. Improves cold-start resilience."
       }
     }
   },
