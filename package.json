@@ -5,8 +5,9 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "./scripts/deploy.sh production",
-    "deploy:staging": "./scripts/deploy.sh staging",
+    "deploy": "wrangler deploy --env production",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:interactive": "./scripts/deploy.sh production",
     "deploy:manual": "wrangler deploy",
     "tail": "wrangler tail",
     "tail:production": "wrangler tail --env production",
