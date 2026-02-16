@@ -77,6 +77,18 @@ const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
  * Fetch and cache JWKS from InChambers
  */
 async function getJwks(env: Env): Promise<JsonWebKey[]> {
+  // PERFORMANCE: Use fallback key by default if available (skip JWKS fetch)
+  if (env.JWT_PUBLIC_KEY_FALLBACK) {
+    return [{
+      kty: 'RSA',
+      use: 'sig',
+      alg: 'RS256',
+      n: extractModulusFromPEM(env.JWT_PUBLIC_KEY_FALLBACK),
+      e: 'AQAB',
+      kid: '67558b1f4805e985', // Must match backend JWT kid
+    }];
+  }
+
   const now = Date.now();
 
   // Return cached JWKS if still valid
@@ -97,19 +109,6 @@ async function getJwks(env: Env): Promise<JsonWebKey[]> {
     jwksCache = { keys: jwks.keys, fetchedAt: now };
     return jwks.keys;
   } catch (error) {
-    // If fetch fails and we have fallback key, use it
-    if (env.JWT_PUBLIC_KEY_FALLBACK) {
-      console.warn('JWKS fetch failed, using fallback key');
-      return [{
-        kty: 'RSA',
-        use: 'sig',
-        alg: 'RS256',
-        n: extractModulusFromPEM(env.JWT_PUBLIC_KEY_FALLBACK),
-        e: 'AQAB',
-        kid: '67558b1f4805e985', // Must match backend JWT kid
-      }];
-    }
-
     // If we have stale cache, use it
     if (jwksCache) {
       console.warn('JWKS fetch failed, using stale cache');
