@@ -3,6 +3,14 @@
 ##############################################
 # InChambers Cloudflare Worker Deployment
 # Automated secret management + deployment
+#
+# Supports both interactive (terminal) and
+# non-interactive (env vars) modes.
+#
+# Environment variables (non-interactive):
+#   OPENROUTER_API_KEY - Required
+#   ORG_ID             - Optional
+#   ALERT_WEBHOOK_URL  - Optional
 ##############################################
 
 set -e
@@ -16,6 +24,12 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
+
+# Detect if running in an interactive terminal
+IS_INTERACTIVE=false
+if [ -t 0 ]; then
+  IS_INTERACTIVE=true
+fi
 
 # Check prerequisites
 check_prereq() {
@@ -38,7 +52,6 @@ fetch_public_key() {
   echo ""
   echo "📥 Fetching JWT public key from InChambers..."
 
-  # Fetch JWKS from production
   JWKS_URL="https://app.inchambers.ai/.well-known/jwks.json"
   JWKS_RESPONSE=$(curl -s "$JWKS_URL")
 
@@ -47,8 +60,6 @@ fetch_public_key() {
     return 1
   fi
 
-  # Extract the public key modulus (n) from first key
-  # This is a simplified extraction - in production you'd parse JSON properly
   PUBLIC_KEY_N=$(echo "$JWKS_RESPONSE" | grep -o '"n":"[^"]*"' | head -1 | cut -d'"' -f4)
 
   if [ -z "$PUBLIC_KEY_N" ]; then
@@ -56,8 +67,6 @@ fetch_public_key() {
     return 1
   fi
 
-  # Convert JWK to PEM format (simplified - assumes RSA)
-  # In production, this should use a proper JWK-to-PEM converter
   cat > /tmp/ic_public_key.pem <<EOF
 -----BEGIN PUBLIC KEY-----
 $PUBLIC_KEY_N
@@ -68,63 +77,26 @@ EOF
   return 0
 }
 
-# Fetch organization config from InChambers API
-fetch_org_config() {
-  echo ""
-  echo "🏢 Organization Configuration"
-
-  # Check if ORG_ID already provided via environment variable
-  if [ -n "$ORG_ID" ]; then
-    echo -e "${GREEN}✓ Organization ID provided: $ORG_ID${NC}"
-    echo "$ORG_ID"
-    return 0
-  fi
-
-  echo "Enter your InChambers access token (from browser localStorage 'ic_access_token'):"
-  echo -e "${YELLOW}(Press Enter to skip and enter org ID manually)${NC}"
-  read -r IC_TOKEN
-
-  if [ -z "$IC_TOKEN" ]; then
-    # Manual org ID entry
-    echo "Enter your Organization ID (from InChambers Admin Dashboard):"
-    echo -e "${YELLOW}(Press Enter to skip if this worker serves multiple orgs)${NC}"
-    read -r MANUAL_ORG_ID
-    echo "$MANUAL_ORG_ID"
-    return 0
-  fi
-
-  # Fetch org config from API
-  echo "Fetching organization details from InChambers..."
-  ORG_RESPONSE=$(curl -s -H "Authorization: Bearer $IC_TOKEN" \
-    "https://app.inchambers.ai/api/user/organization")
-
-  if [ $? -ne 0 ] || [ -z "$ORG_RESPONSE" ]; then
-    echo -e "${YELLOW}⚠️  Could not fetch organization. Enter manually:${NC}"
-    read -r MANUAL_ORG_ID
-    echo "$MANUAL_ORG_ID"
-    return 0
-  fi
-
-  # Extract org_id from JSON response (requires jq, falls back to manual if not available)
-  if command -v jq &> /dev/null; then
-    FETCHED_ORG_ID=$(echo "$ORG_RESPONSE" | jq -r '.organization.id // empty')
-    if [ -n "$FETCHED_ORG_ID" ]; then
-      echo -e "${GREEN}✓ Organization ID fetched: $FETCHED_ORG_ID${NC}"
-      echo "$FETCHED_ORG_ID"
-      return 0
-    fi
-  fi
-
-  # Fallback: manual entry
-  echo -e "${YELLOW}⚠️  Could not parse response. Enter manually:${NC}"
-  read -r MANUAL_ORG_ID
-  echo "$MANUAL_ORG_ID"
-}
-
-# Get OpenRouter API key
+# Get OpenRouter API key (env var or interactive)
 get_openrouter_key() {
   echo ""
   echo "🔑 OpenRouter API Key"
+
+  # Check environment variable first
+  if [ -n "$OPENROUTER_API_KEY" ]; then
+    echo -e "${GREEN}✓ OpenRouter API key found in environment${NC}"
+    echo "$OPENROUTER_API_KEY"
+    return 0
+  fi
+
+  # Non-interactive mode: fail if no env var
+  if [ "$IS_INTERACTIVE" = false ]; then
+    echo -e "${RED}❌ OPENROUTER_API_KEY environment variable is required in non-interactive mode${NC}"
+    echo -e "${YELLOW}Set it in your Cloudflare Pages environment variables or export it before running.${NC}"
+    exit 1
+  fi
+
+  # Interactive fallback
   echo "Enter your OpenRouter API key (from https://openrouter.ai/keys):"
   read -r OPENROUTER_KEY
 
@@ -136,10 +108,81 @@ get_openrouter_key() {
   echo "$OPENROUTER_KEY"
 }
 
+# Fetch organization config
+fetch_org_config() {
+  echo ""
+  echo "🏢 Organization Configuration"
+
+  # Check environment variable first
+  if [ -n "$ORG_ID" ]; then
+    echo -e "${GREEN}✓ Organization ID provided: $ORG_ID${NC}"
+    echo "$ORG_ID"
+    return 0
+  fi
+
+  # Non-interactive mode: skip (optional)
+  if [ "$IS_INTERACTIVE" = false ]; then
+    echo -e "${YELLOW}⚠️  No ORG_ID set. Skipping (optional).${NC}"
+    echo ""
+    return 0
+  fi
+
+  echo "Enter your InChambers access token (from browser localStorage 'ic_access_token'):"
+  echo -e "${YELLOW}(Press Enter to skip and enter org ID manually)${NC}"
+  read -r IC_TOKEN
+
+  if [ -z "$IC_TOKEN" ]; then
+    echo "Enter your Organization ID (from InChambers Admin Dashboard):"
+    echo -e "${YELLOW}(Press Enter to skip if this worker serves multiple orgs)${NC}"
+    read -r MANUAL_ORG_ID
+    echo "$MANUAL_ORG_ID"
+    return 0
+  fi
+
+  echo "Fetching organization details from InChambers..."
+  ORG_RESPONSE=$(curl -s -H "Authorization: Bearer $IC_TOKEN" \
+    "https://app.inchambers.ai/api/user/organization")
+
+  if [ $? -ne 0 ] || [ -z "$ORG_RESPONSE" ]; then
+    echo -e "${YELLOW}⚠️  Could not fetch organization. Enter manually:${NC}"
+    read -r MANUAL_ORG_ID
+    echo "$MANUAL_ORG_ID"
+    return 0
+  fi
+
+  if command -v jq &> /dev/null; then
+    FETCHED_ORG_ID=$(echo "$ORG_RESPONSE" | jq -r '.organization.id // empty')
+    if [ -n "$FETCHED_ORG_ID" ]; then
+      echo -e "${GREEN}✓ Organization ID fetched: $FETCHED_ORG_ID${NC}"
+      echo "$FETCHED_ORG_ID"
+      return 0
+    fi
+  fi
+
+  echo -e "${YELLOW}⚠️  Could not parse response. Enter manually:${NC}"
+  read -r MANUAL_ORG_ID
+  echo "$MANUAL_ORG_ID"
+}
+
 # Get alert webhook URL (optional)
 get_webhook_url() {
   echo ""
   echo "🔔 Security Alert Webhook (Optional)"
+
+  # Check environment variable first
+  if [ -n "$ALERT_WEBHOOK_URL" ]; then
+    echo -e "${GREEN}✓ Alert webhook URL found in environment${NC}"
+    echo "$ALERT_WEBHOOK_URL"
+    return 0
+  fi
+
+  # Non-interactive mode: skip (optional)
+  if [ "$IS_INTERACTIVE" = false ]; then
+    echo -e "${YELLOW}⚠️  No ALERT_WEBHOOK_URL set. Skipping (optional).${NC}"
+    echo ""
+    return 0
+  fi
+
   echo "Enter webhook URL for security alerts (Slack, Discord, etc.):"
   echo -e "${YELLOW}(Press Enter to skip)${NC}"
   read -r WEBHOOK_URL
@@ -157,23 +200,19 @@ set_secrets() {
   echo ""
   echo "🔐 Setting Cloudflare Worker secrets..."
 
-  # Required: OpenRouter API key
   echo "$OPENROUTER_KEY" | wrangler secret put OPENROUTER_API_KEY --env "$ENV" > /dev/null 2>&1
   echo -e "${GREEN}✓ OPENROUTER_API_KEY set${NC}"
 
-  # Optional: Organization ID
   if [ -n "$ORG_ID" ]; then
     echo "$ORG_ID" | wrangler secret put ORGANIZATION_ID --env "$ENV" > /dev/null 2>&1
     echo -e "${GREEN}✓ ORGANIZATION_ID set${NC}"
   fi
 
-  # Optional: Alert webhook
   if [ -n "$WEBHOOK_URL" ]; then
     echo "$WEBHOOK_URL" | wrangler secret put ALERT_WEBHOOK_URL --env "$ENV" > /dev/null 2>&1
     echo -e "${GREEN}✓ ALERT_WEBHOOK_URL set${NC}"
   fi
 
-  # Optional: JWT fallback key
   if [ -f /tmp/ic_public_key.pem ]; then
     cat /tmp/ic_public_key.pem | wrangler secret put JWT_PUBLIC_KEY_FALLBACK --env "$ENV" > /dev/null 2>&1
     echo -e "${GREEN}✓ JWT_PUBLIC_KEY_FALLBACK set${NC}"
@@ -198,17 +237,19 @@ deploy_worker() {
 main() {
   check_prereq
 
-  # Determine environment
   ENV=${1:-production}
 
   echo ""
   echo "Deploying to: $ENV"
+  if [ "$IS_INTERACTIVE" = false ]; then
+    echo "(Non-interactive mode — reading from environment variables)"
+  fi
   echo ""
 
   # Fetch public key (optional, non-blocking)
   fetch_public_key || true
 
-  # Get user inputs
+  # Get configuration
   OPENROUTER_KEY=$(get_openrouter_key)
   ORG_ID=$(fetch_org_config)
   WEBHOOK_URL=$(get_webhook_url)
@@ -219,7 +260,6 @@ main() {
   # Deploy
   deploy_worker "$ENV"
 
-  # Show post-deployment instructions
   echo ""
   echo "📋 Next Steps:"
   echo "1. Copy your worker URL from the output above"
@@ -234,5 +274,4 @@ main() {
   echo ""
 }
 
-# Run main with environment argument
 main "$@"
