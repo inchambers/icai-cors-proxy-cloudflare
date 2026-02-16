@@ -68,19 +68,57 @@ EOF
   return 0
 }
 
-# Get organization ID
-get_org_id() {
+# Fetch organization config from InChambers API
+fetch_org_config() {
   echo ""
   echo "🏢 Organization Configuration"
-  echo "Enter your Organization ID (from InChambers Admin Dashboard):"
-  echo -e "${YELLOW}(Press Enter to skip if this worker serves multiple orgs)${NC}"
-  read -r ORG_ID
 
+  # Check if ORG_ID already provided via environment variable
   if [ -n "$ORG_ID" ]; then
+    echo -e "${GREEN}✓ Organization ID provided: $ORG_ID${NC}"
     echo "$ORG_ID"
-  else
-    echo ""
+    return 0
   fi
+
+  echo "Enter your InChambers access token (from browser localStorage 'ic_access_token'):"
+  echo -e "${YELLOW}(Press Enter to skip and enter org ID manually)${NC}"
+  read -r IC_TOKEN
+
+  if [ -z "$IC_TOKEN" ]; then
+    # Manual org ID entry
+    echo "Enter your Organization ID (from InChambers Admin Dashboard):"
+    echo -e "${YELLOW}(Press Enter to skip if this worker serves multiple orgs)${NC}"
+    read -r MANUAL_ORG_ID
+    echo "$MANUAL_ORG_ID"
+    return 0
+  fi
+
+  # Fetch org config from API
+  echo "Fetching organization details from InChambers..."
+  ORG_RESPONSE=$(curl -s -H "Authorization: Bearer $IC_TOKEN" \
+    "https://app.inchambers.ai/api/user/organization")
+
+  if [ $? -ne 0 ] || [ -z "$ORG_RESPONSE" ]; then
+    echo -e "${YELLOW}⚠️  Could not fetch organization. Enter manually:${NC}"
+    read -r MANUAL_ORG_ID
+    echo "$MANUAL_ORG_ID"
+    return 0
+  fi
+
+  # Extract org_id from JSON response (requires jq, falls back to manual if not available)
+  if command -v jq &> /dev/null; then
+    FETCHED_ORG_ID=$(echo "$ORG_RESPONSE" | jq -r '.organization.id // empty')
+    if [ -n "$FETCHED_ORG_ID" ]; then
+      echo -e "${GREEN}✓ Organization ID fetched: $FETCHED_ORG_ID${NC}"
+      echo "$FETCHED_ORG_ID"
+      return 0
+    fi
+  fi
+
+  # Fallback: manual entry
+  echo -e "${YELLOW}⚠️  Could not parse response. Enter manually:${NC}"
+  read -r MANUAL_ORG_ID
+  echo "$MANUAL_ORG_ID"
 }
 
 # Get OpenRouter API key
@@ -172,7 +210,7 @@ main() {
 
   # Get user inputs
   OPENROUTER_KEY=$(get_openrouter_key)
-  ORG_ID=$(get_org_id)
+  ORG_ID=$(fetch_org_config)
   WEBHOOK_URL=$(get_webhook_url)
 
   # Set secrets

@@ -24,21 +24,30 @@ A lightweight, edge-deployed CORS proxy for OpenRouter with true streaming suppo
 
 #### Option 1: Automated Deployment (Recommended)
 
+**From InChambers Admin Dashboard:**
+1. Go to Organization Admin Dashboard → AI Platform → Configure
+2. Select "Cloudflare Worker"
+3. Copy the pre-configured command (includes your ORG_ID)
+4. Run it in your terminal
+
+**Manual Command:**
 ```bash
-# Install dependencies
+# Clone and setup
+git clone https://github.com/inchambers/icai-cors-proxy-cloudflare.git
+cd icai-cors-proxy-cloudflare
 npm install
 
 # Login to Cloudflare
 wrangler login
 
-# Run automated deployment script
-npm run deploy
+# Deploy with your organization ID (auto-configures everything)
+ORG_ID=<your-org-id> npm run deploy
 ```
 
 The script will:
-1. ✅ Fetch JWT public key from InChambers automatically
-2. ✅ Prompt for your OpenRouter API key
-3. ✅ Prompt for Organization ID (optional)
+1. ✅ Use your ORG_ID from environment variable (or prompt if not set)
+2. ✅ Fetch JWT public key from InChambers automatically
+3. ✅ Prompt for your OpenRouter API key
 4. ✅ Prompt for alert webhook URL (optional)
 5. ✅ Set all secrets automatically
 6. ✅ Deploy to Cloudflare Workers
