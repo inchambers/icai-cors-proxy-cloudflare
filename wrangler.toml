@@ -10,6 +10,8 @@ AUDIT_LOG = "true"
 # Secrets (set via wrangler secret put):
 # - OPENROUTER_API_KEY: Your OpenRouter API key (required)
 # - JWT_PUBLIC_KEY_FALLBACK: RS256 public key for cold-start resilience (optional)
+# - ORGANIZATION_ID: Organization UUID for cross-org access prevention (optional)
+# - ALERT_WEBHOOK_URL: Webhook URL for security alerts (optional)
 
 # Production environment
 [env.production]

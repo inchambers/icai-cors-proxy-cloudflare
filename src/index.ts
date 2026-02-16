@@ -3,27 +3,63 @@
  *
  * A lightweight, edge-deployed CORS proxy for OpenRouter with:
  * - True streaming support (no buffering)
- * - JWT verification via JWKS
+ * - JWT verification via JWKS with replay protection
  * - Zero cold starts (V8 isolates)
  * - Global edge deployment (300+ PoPs)
+ * - Rate limiting (60 req/min per user)
+ * - Organization-level access control
+ * - Abuse detection and alerting
  *
  * Environment Variables (secrets):
- * - OPENROUTER_API_KEY: Your OpenRouter API key
+ * - OPENROUTER_API_KEY: Your OpenRouter API key (required)
  * - JWT_PUBLIC_KEY_FALLBACK: (optional) RS256 public key for cold-start resilience
- * - REGISTRATION_TOKEN: Token for auto-registration callback
+ * - ORGANIZATION_ID: (optional) Organization UUID for cross-org access prevention
+ * - ALERT_WEBHOOK_URL: (optional) Webhook URL for security alerts
  * - AUDIT_LOG: "true" to enable audit logging (default: true)
+ *
+ * Security Features:
+ * - JWT replay protection via JTI tracking
+ * - Per-user rate limiting (60 requests per 60 seconds)
+ * - Organization ID verification (prevents cross-org access)
+ * - Request size limits (5MB body, 200K input tokens, 32K output tokens)
+ * - Abuse pattern detection (high-cost requests, large prompts, rapid requests)
+ * - JWKS cache TTL reduced to 15 minutes (enhanced security)
  */
 
 export interface Env {
   OPENROUTER_API_KEY: string;
   JWT_PUBLIC_KEY_FALLBACK?: string;
   AUDIT_LOG?: string;
+  ORGANIZATION_ID?: string; // For org-level authorization
+  ALERT_WEBHOOK_URL?: string; // For security alerts
 }
 
-// JWKS cache
+// JWKS cache (reduced TTL for security)
 let jwksCache: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
-const JWKS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const JWKS_CACHE_TTL = 15 * 60 * 1000; // 15 minutes (was 1 hour)
 const JWKS_URL = 'https://inchambers.ai/.well-known/jwks.json';
+
+// JWT replay protection: Track used JTIs to prevent replay attacks
+const usedJTIs = new Map<string, number>(); // jti -> expiration timestamp
+const JTI_CLEANUP_INTERVAL = 1000; // Cleanup every 1000 requests
+let jtiCleanupCounter = 0;
+
+// Rate limiting: Track requests per user
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+const rateLimits = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_REQUESTS = 60; // 60 requests
+const RATE_LIMIT_WINDOW = 60 * 1000; // per 60 seconds
+
+// Abuse detection: Track suspicious patterns
+interface AbuseMetrics {
+  highCostRequests: number; // Requests with max_tokens > 16K
+  largePrompts: number; // Prompts > 50K tokens
+  rapidRequests: number; // > 30 req/min
+}
+const abuseMetrics = new Map<string, AbuseMetrics>();
 
 
 // Allowed origins for CORS
@@ -114,7 +150,7 @@ function base64UrlDecode(str: string): Uint8Array {
 /**
  * Verify JWT and extract user ID
  */
-async function verifyJwt(token: string, env: Env): Promise<{ userId: string; email?: string } | null> {
+async function verifyJwt(token: string, env: Env): Promise<{ userId: string; email?: string; orgId?: string } | null> {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) {
@@ -180,9 +216,34 @@ async function verifyJwt(token: string, env: Env): Promise<{ userId: string; ema
       return null;
     }
 
+    // Check for JTI replay attack
+    if (payload.jti) {
+      // Check if JTI has been used before
+      if (usedJTIs.has(payload.jti)) {
+        console.error('JWT replay attack detected - JTI already used:', payload.jti);
+        return null;
+      }
+
+      // Mark JTI as used with expiration timestamp
+      usedJTIs.set(payload.jti, payload.exp * 1000);
+
+      // Cleanup expired JTIs periodically
+      jtiCleanupCounter++;
+      if (jtiCleanupCounter >= JTI_CLEANUP_INTERVAL) {
+        const now = Date.now();
+        for (const [jti, exp] of usedJTIs.entries()) {
+          if (exp < now) {
+            usedJTIs.delete(jti);
+          }
+        }
+        jtiCleanupCounter = 0;
+      }
+    }
+
     return {
       userId: payload.sub,
       email: payload.email,
+      orgId: payload.org_id,
     };
   } catch (error) {
     console.error('JWT verification error:', error);
@@ -273,6 +334,61 @@ async function handleChatCompletions(request: Request, env: Env): Promise<Respon
     }), origin);
   }
 
+  // Rate limiting check
+  const now = Date.now();
+  const userRateLimit = rateLimits.get(user.userId);
+
+  if (userRateLimit) {
+    if (now < userRateLimit.resetAt) {
+      if (userRateLimit.count >= RATE_LIMIT_REQUESTS) {
+        return setCorsHeaders(new Response(JSON.stringify({
+          error: 'Rate limit exceeded',
+          details: `Maximum ${RATE_LIMIT_REQUESTS} requests per ${RATE_LIMIT_WINDOW / 1000} seconds`,
+          retryAfter: Math.ceil((userRateLimit.resetAt - now) / 1000),
+        }), {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(Math.ceil((userRateLimit.resetAt - now) / 1000)),
+          },
+        }), origin);
+      }
+      userRateLimit.count++;
+    } else {
+      // Reset window
+      rateLimits.set(user.userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    }
+  } else {
+    // First request from this user
+    rateLimits.set(user.userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+  }
+
+  // Organization verification (if ORGANIZATION_ID is set)
+  if (env.ORGANIZATION_ID && user.orgId !== env.ORGANIZATION_ID) {
+    // Send alert webhook for cross-org access attempt
+    if (env.ALERT_WEBHOOK_URL) {
+      fetch(env.ALERT_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          alert: 'cross_org_access_attempt',
+          userId: user.userId,
+          userOrgId: user.orgId,
+          expectedOrgId: env.ORGANIZATION_ID,
+          timestamp: new Date().toISOString(),
+        }),
+      }).catch(() => {}); // Fire and forget
+    }
+
+    return setCorsHeaders(new Response(JSON.stringify({
+      error: 'Access denied',
+      details: 'Organization mismatch',
+    }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    }), origin);
+  }
+
   // Check OpenRouter API key
   if (!env.OPENROUTER_API_KEY) {
     return setCorsHeaders(new Response(JSON.stringify({ error: 'OpenRouter API key not configured' }), {
@@ -282,6 +398,19 @@ async function handleChatCompletions(request: Request, env: Env): Promise<Respon
   }
 
   try {
+    // Check request body size (5MB limit for legal contracts)
+    const contentLength = request.headers.get('Content-Length');
+    const MAX_BODY_SIZE = 5 * 1024 * 1024; // 5MB
+    if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
+      return setCorsHeaders(new Response(JSON.stringify({
+        error: 'Request body too large',
+        details: `Maximum ${MAX_BODY_SIZE / (1024 * 1024)}MB allowed`,
+      }), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json' },
+      }), origin);
+    }
+
     // Parse request body
     const body = await request.json() as {
       model: string;
@@ -290,6 +419,76 @@ async function handleChatCompletions(request: Request, env: Env): Promise<Respon
       temperature?: number;
       max_tokens?: number;
     };
+
+    // Token limits for legal contracts
+    const MAX_INPUT_TOKENS = 200000; // ~300 pages
+    const MAX_OUTPUT_TOKENS = 32000; // ~50 pages
+
+    // Estimate input tokens (rough approximation: 1 token ≈ 4 chars)
+    const inputText = body.messages.map((m: any) => m.content || '').join('');
+    const estimatedInputTokens = Math.ceil(inputText.length / 4);
+
+    if (estimatedInputTokens > MAX_INPUT_TOKENS) {
+      return setCorsHeaders(new Response(JSON.stringify({
+        error: 'Input too large',
+        details: `Maximum ${MAX_INPUT_TOKENS} tokens (~${Math.floor(MAX_INPUT_TOKENS / 667)} pages) allowed`,
+      }), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json' },
+      }), origin);
+    }
+
+    if (body.max_tokens && body.max_tokens > MAX_OUTPUT_TOKENS) {
+      return setCorsHeaders(new Response(JSON.stringify({
+        error: 'max_tokens too large',
+        details: `Maximum ${MAX_OUTPUT_TOKENS} tokens allowed`,
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }), origin);
+    }
+
+    // Track abuse metrics
+    const userAbuse = abuseMetrics.get(user.userId) || {
+      highCostRequests: 0,
+      largePrompts: 0,
+      rapidRequests: 0
+    };
+
+    if (body.max_tokens && body.max_tokens > 16000) {
+      userAbuse.highCostRequests++;
+    }
+    if (estimatedInputTokens > 50000) {
+      userAbuse.largePrompts++;
+    }
+
+    const recentRate = rateLimits.get(user.userId);
+    if (recentRate && recentRate.count > 30) {
+      userAbuse.rapidRequests++;
+    }
+
+    abuseMetrics.set(user.userId, userAbuse);
+
+    // Alert on suspicious patterns
+    if (env.ALERT_WEBHOOK_URL) {
+      const isAbusive = userAbuse.highCostRequests > 10 ||
+                       userAbuse.largePrompts > 5 ||
+                       userAbuse.rapidRequests > 3;
+
+      if (isAbusive) {
+        fetch(env.ALERT_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            alert: 'abuse_pattern_detected',
+            userId: user.userId,
+            email: user.email,
+            metrics: userAbuse,
+            timestamp: new Date().toISOString(),
+          }),
+        }).catch(() => {}); // Fire and forget
+      }
+    }
 
     // Audit log (if enabled)
     if (env.AUDIT_LOG !== 'false') {
