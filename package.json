@@ -7,14 +7,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --env production",
     "deploy:staging": "wrangler deploy --env staging",
-    "deploy:interactive": "./scripts/deploy.sh production",
-    "deploy:manual": "wrangler deploy",
     "tail": "wrangler tail",
-    "tail:production": "wrangler tail --env production",
-    "secret:openrouter": "wrangler secret put OPENROUTER_API_KEY",
-    "secret:org": "wrangler secret put ORGANIZATION_ID",
-    "secret:webhook": "wrangler secret put ALERT_WEBHOOK_URL",
-    "secret:jwt-fallback": "wrangler secret put JWT_PUBLIC_KEY_FALLBACK"
+    "tail:production": "wrangler tail --env production"
   },
   "keywords": [
     "cloudflare-worker",
@@ -37,7 +31,7 @@
         "description": "**Optional**: Webhook URL (Slack, Discord, etc.) for security alerts (abuse detection, unauthorized access attempts)."
       },
       "JWT_PUBLIC_KEY_FALLBACK": {
-        "description": "**Optional**: RS256 public key for JWT verification fallback. Auto-fetched during deployment. Improves cold-start resilience."
+        "description": "**Optional**: RS256 public key for JWT verification fallback. Auto-fetched at runtime from JWKS endpoint. Set manually for cold-start resilience."
       }
     }
   },
