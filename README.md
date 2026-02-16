@@ -85,31 +85,34 @@ Copy this URL and paste it into your InChambers Organization Admin Dashboard.
 
 ### Environment Variables
 
-| Variable | Required | Description | Auto-Set by Script? |
-|----------|----------|-------------|---------------------|
-| `OPENROUTER_API_KEY` | **Yes** | Your OpenRouter API key | ✅ Yes (prompts) |
-| `ORGANIZATION_ID` | No | Organization UUID for access control | ✅ Yes (prompts) |
-| `ALERT_WEBHOOK_URL` | No | Webhook URL for security alerts | ✅ Yes (prompts) |
-| `JWT_PUBLIC_KEY_FALLBACK` | No | RS256 public key for JWT verification | ✅ Yes (auto-fetched) |
-| `AUDIT_LOG` | No | Set to "false" to disable audit logging | ❌ Manual (wrangler.toml) |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENROUTER_API_KEY` | **Yes** | Your OpenRouter API key from https://openrouter.ai/keys |
+| `ORGANIZATION_ID` | **Yes** | Organization UUID from InChambers Admin Dashboard |
+| `JWT_PUBLIC_KEY_FALLBACK` | **Yes** | RS256 public key for JWT verification |
 
-### Setting Secrets Manually
+### Optional Advanced Settings
 
-If you prefer manual control:
+| Variable | Description | How to Set |
+|----------|-------------|------------|
+| `ALERT_WEBHOOK_URL` | Webhook URL for security alerts (Slack, Discord, etc.) | `wrangler secret put ALERT_WEBHOOK_URL` |
+| `AUDIT_LOG` | Set to "false" to disable audit logging | Edit `wrangler.toml` |
+
+### Advanced Configuration
+
+After deployment, you can optionally add security alert webhooks:
 
 ```bash
-# Required: OpenRouter API key
-npm run secret:openrouter
+# Optional: Security alerts webhook (Slack, Discord, etc.)
+wrangler secret put ALERT_WEBHOOK_URL
 
-# Optional: Organization ID (prevents cross-org access)
-npm run secret:org
-
-# Optional: Alert webhook URL (Slack, Discord, etc.)
-npm run secret:webhook
-
-# Optional: JWT fallback key (for cold-start resilience)
-npm run secret:jwt-fallback
+# Then enter your webhook URL when prompted
+# Example: https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 ```
+
+The worker will send alerts for:
+- Cross-organization access attempts
+- Abuse detection (high-cost requests, large prompts, rapid requests)
 
 ## API Endpoints
 
